@@ -1,128 +1,360 @@
-import { createClient } from "npm:@supabase/supabase-js@2.39.7";
-import { Resend } from "npm:resend@3.2.0";
+// @ts-ignore
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+// @ts-ignore
+import { Resend } from "https://esm.sh/resend@3.2.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Max-Age": "86400"
 };
 
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
-const supabaseUrl = Deno.env.get("SUPABASE_URL");
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
+// Email configuration
+const EMAIL_CONFIG = {
+  from: "RePhotos.ca <cooper@rephotos.ca>",
+  replyTo: "cooper@rephotos.ca",
+  companyName: "Rephotos",
+  phone: "905-299-9300"
+};
 
-interface BookingData {
-  property_size: string;
-  services: Array<{
-    name: string;
-    price: number;
-    count: number;
-    total: number;
-  }>;
-  total_amount: number;
-  address: {
-    street: string;
-    street2?: string;
-    city: string;
-    province: string;
-    zipCode: string;
-  };
-  notes: string | null;
-  preferred_date: string;
-  property_status: string;
-  agent_name: string;
-  agent_email: string;
-  agent_phone: string;
-  agent_company: string | null;
+// Add version logging
+console.log("Function version: 1.0.9");
+console.log("Function started at:", new Date().toISOString());
+
+// Check if API key exists and log its presence (but not the actual key)
+// @ts-ignore
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+console.log("Environment check:", {
+  hasResendKey: !!RESEND_API_KEY,
+  resendKeyLength: RESEND_API_KEY?.length || 0,
+  resendKeyPrefix: RESEND_API_KEY?.substring(0, 5) + "...",
+  // @ts-ignore
+  denoVersion: Deno.version,
+  emailFrom: EMAIL_CONFIG.from
+});
+
+if (!RESEND_API_KEY) {
+  console.error("RESEND_API_KEY is not set in environment variables!");
+  throw new Error("RESEND_API_KEY is not configured");
 }
 
-Deno.serve(async (req) => {
+// Initialize Resend client
+let resend;
+try {
+  console.log("Initializing Resend client...");
+  resend = new Resend(RESEND_API_KEY);
+  console.log("Resend client initialized successfully");
+} catch (error) {
+  console.error("Failed to initialize Resend client:", error);
+  throw error;
+}
+
+// Helper function to validate booking record
+function validateBookingRecord(record) {
+  const requiredFields = [
+    'property_size',
+    'services',
+    'total_amount',
+    'address',
+    'preferred_date',
+    'time',
+    'agent_name',
+    'agent_email'
+  ];
+  const missingFields = requiredFields.filter((field)=>!record[field]);
+  if (missingFields.length > 0) {
+    throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+  }
+  if (!Array.isArray(record.services) || record.services.length === 0) {
+    throw new Error('Services must be a non-empty array');
+  }
+  if (typeof record.address !== 'object' && typeof record.address !== 'string') {
+    throw new Error('Address must be an object or string');
+  }
+  if (typeof record.address === 'object') {
+    const requiredAddressFields = [
+      'street',
+      'city',
+      'province',
+      'zipCode'
+    ];
+    const missingAddressFields = requiredAddressFields.filter((field)=>!record.address[field]);
+    if (missingAddressFields.length > 0) {
+      throw new Error(`Missing required address fields: ${missingAddressFields.join(', ')}`);
+    }
+  }
+  return true;
+}
+
+// Helper function to send email
+async function sendEmail(to, subject, text) {
+  try {
+    console.log("Attempting to send email:", {
+      from: EMAIL_CONFIG.from,
+      to,
+      subject,
+      textLength: text.length
+    });
+    const response = await resend.emails.send({
+      from: EMAIL_CONFIG.from,
+      reply_to: EMAIL_CONFIG.replyTo,
+      to,
+      subject,
+      text
+    });
+    console.log("Email send response:", {
+      success: !response.error,
+      error: response.error,
+      id: response.id
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    return response;
+  } catch (error) {
+    console.error("Error sending email:", {
+      error: error.message,
+      stack: error.stack,
+      cause: error.cause,
+      from: EMAIL_CONFIG.from
+    });
+    throw error;
+  }
+}
+
+serve(async (req)=>{
+  const requestId = crypto.randomUUID();
+  console.log(`[${requestId}] Function called at:`, new Date().toISOString());
+  console.log(`[${requestId}] Request URL:`, req.url);
+  console.log(`[${requestId}] Request method:`, req.method);
+  console.log(`[${requestId}] Request headers:`, Object.fromEntries(req.headers.entries()));
+
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
+    console.log(`[${requestId}] Handling CORS preflight request`);
     return new Response(null, {
       status: 204,
-      headers: corsHeaders,
+      headers: corsHeaders
+    });
+  }
+
+  // Add a test endpoint that works with GET requests
+  if (req.url.endsWith('/test')) {
+    // Allow GET requests for testing
+    if (req.method === "GET") {
+      try {
+        console.log(`[${requestId}] Testing email sending via GET request...`);
+        const testResponse = await sendEmail(
+          ["cooper@rephotos.ca"],
+          "Test Email from Edge Function",
+          `This is a test email to verify the Resend client is working.
+          
+From: ${EMAIL_CONFIG.from}
+Reply-To: ${EMAIL_CONFIG.replyTo}
+Company: ${EMAIL_CONFIG.companyName}`
+        );
+        return new Response(JSON.stringify({
+          message: "Test email sent successfully",
+          testResponse,
+          requestId,
+          timestamp: new Date().toISOString(),
+          from: EMAIL_CONFIG.from
+        }), {
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json"
+          },
+          status: 200
+        });
+      } catch (error) {
+        console.error(`[${requestId}] Test email failed:`, error);
+        return new Response(JSON.stringify({
+          error: "Test email failed",
+          details: error.message,
+          requestId,
+          timestamp: new Date().toISOString(),
+          from: EMAIL_CONFIG.from
+        }), {
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json"
+          },
+          status: 500
+        });
+      }
+    }
+  }
+
+  // For all other requests, require authentication
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    console.error(`[${requestId}] Missing authorization header`);
+    return new Response(JSON.stringify({
+      error: "Missing authorization header",
+      requestId
+    }), {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json"
+      },
+      status: 401
     });
   }
 
   try {
-    const { record } = await req.json() as { record: BookingData };
+    // Log the raw request body
+    const body = await req.text();
+    console.log(`[${requestId}] Raw request body:`, body);
+    let record;
+    try {
+      const parsedBody = JSON.parse(body);
+      console.log(`[${requestId}] Parsed request body:`, {
+        hasRecord: !!parsedBody.record,
+        recordKeys: parsedBody.record ? Object.keys(parsedBody.record) : [],
+        bodyKeys: Object.keys(parsedBody)
+      });
+      record = parsedBody.record || parsedBody;
+      // Validate the booking record
+      validateBookingRecord(record);
+      console.log(`[${requestId}] Booking record validation passed`);
+    } catch (e) {
+      console.error(`[${requestId}] Request parsing/validation failed:`, {
+        error: e.message,
+        stack: e.stack,
+        body: body.substring(0, 1000) // Log first 1000 chars of body for debugging
+      });
+      throw new Error(`Invalid request data: ${e.message}`);
+    }
 
-    // Format services for email
-    const servicesList = record.services
-      .map(
-        (service) =>
-          `${service.name} (${service.count}x) - $${service.total.toFixed(2)}`
-      )
-      .join("\n");
-
-    // Format address
-    const fullAddress = [
-      record.address.street,
-      record.address.street2,
-      record.address.city,
-      record.address.province,
-      record.address.zipCode,
-    ]
-      .filter(Boolean)
-      .join(", ");
-
-    // Send email to agent
-    await resend.emails.send({
-      from: "bookings@yourdomain.com",
-      to: record.agent_email,
-      subject: "Booking Confirmation",
-      html: `
-        <h1>Booking Confirmation</h1>
-        <p>Thank you for your booking, ${record.agent_name}!</p>
-        
-        <h2>Booking Details</h2>
-        <p><strong>Property Size:</strong> ${record.property_size}</p>
-        <p><strong>Property Status:</strong> ${record.property_status}</p>
-        <p><strong>Address:</strong> ${fullAddress}</p>
-        <p><strong>Preferred Date:</strong> ${record.preferred_date}</p>
-        
-        <h2>Services</h2>
-        <pre>${servicesList}</pre>
-        
-        <p><strong>Total Amount:</strong> $${record.total_amount.toFixed(2)}</p>
-        
-        <h2>Agent Information</h2>
-        <p><strong>Name:</strong> ${record.agent_name}</p>
-        <p><strong>Email:</strong> ${record.agent_email}</p>
-        <p><strong>Phone:</strong> ${record.agent_phone}</p>
-        ${record.agent_company ? `<p><strong>Company:</strong> ${record.agent_company}</p>` : ''}
-        
-        ${record.notes ? `<h2>Additional Notes</h2><p>${record.notes}</p>` : ''}
-      `,
+    // Log the parsed record (excluding sensitive data)
+    console.log(`[${requestId}] Processing booking record:`, {
+      property_size: record.property_size,
+      services_count: record.services?.length,
+      total_amount: record.total_amount,
+      agent_email: record.agent_email,
+      agent_name: record.agent_name,
+      preferred_date: record.preferred_date,
+      time: record.time,
+      property_status: record.property_status,
+      address_type: typeof record.address,
+      has_notes: !!record.notes
     });
 
-    return new Response(
-      JSON.stringify({ message: "Email sent successfully" }),
-      {
+    const { property_size, services, total_amount, address, notes, preferred_date, time, property_status, agent_name, agent_email, agent_phone, agent_company } = record;
+
+    // Format services for display
+    const serviceList = services.map((service)=>`${service.name} (${service.count}x) - $${service.total}`).join("\n");
+
+    // Format address
+    const addressStr = typeof address === 'string' ? address : `${address.street}, ${address.city}, ${address.province} ${address.zipCode}`;
+
+    // Format time for display (convert 24h to 12h format)
+    const formatTime = (timeStr) => {
+      const [hours, minutes] = timeStr.split(':');
+      const hour = parseInt(hours);
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const hour12 = hour % 12 || 12;
+      return `${hour12}:${minutes} ${ampm}`;
+    };
+
+    const emailBody = `
+Dear ${agent_name},
+
+Thank you for choosing ${EMAIL_CONFIG.companyName} for your photography needs! We're excited to help showcase your property.
+
+📸 BOOKING CONFIRMATION
+
+PROPERTY DETAILS
+• Size: ${property_size}
+• Status: ${property_status}
+• Preferred Date: ${new Date(preferred_date).toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    })}
+• Preferred Time: ${formatTime(time)}
+• Address: ${addressStr}
+
+SERVICES BOOKED
+${services.map((service)=>`• ${service.name}
+ Quantity: ${service.count}
+ Price: $${service.total.toFixed(2)}`).join('\n\n')}
+
+Total Amount: $${total_amount.toFixed(2)}
+
+${notes ? `ADDITIONAL NOTES
+${notes}` : ''}
+
+AGENT INFORMATION
+• Name: ${agent_name}
+• Email: ${agent_email}
+${agent_phone ? `• Phone: ${agent_phone}` : ''}
+${agent_company ? `• Company: ${agent_company}` : ''}
+
+NEXT STEPS
+
+We'll review your booking and confirm the appointment time.
+
+Please ensure the property is ready by reviewing our Photo Day Prep Guide. https://www.rephotos.ca/photo-day
+
+Our photographer will arrive on time and begin capturing the property as outlined in the checklist.
+
+If you need to make any changes to your booking, simply reply to this email or call us at ${EMAIL_CONFIG.phone}.
+
+Best regards,
+Cooper Thompson
+${EMAIL_CONFIG.from}
+${EMAIL_CONFIG.phone}
+${EMAIL_CONFIG.companyName.toLowerCase()}.ca
+    `.trim();
+
+    try {
+      console.log(`[${requestId}] Sending booking confirmation email...`);
+      const emailResponse = await sendEmail(
+        [agent_email, "cooper@rephotos.ca"],
+        "📸 Booking Confirmation – RePhotos",
+        emailBody
+      );
+      console.log(`[${requestId}] Email sent successfully!`);
+      return new Response(JSON.stringify({
+        message: "Email sent successfully",
+        emailResponse,
+        requestId
+      }), {
         headers: {
           ...corsHeaders,
-          "Content-Type": "application/json",
+          "Content-Type": "application/json"
         },
-        status: 200,
-      }
-    );
+        status: 200
+      });
+    } catch (emailError) {
+      console.error(`[${requestId}] Failed to send booking confirmation email:`, {
+        error: emailError.message,
+        stack: emailError.stack,
+        cause: emailError.cause
+      });
+      throw emailError;
+    }
   } catch (error) {
-    console.error("Error sending email:", error);
-    
-    return new Response(
-      JSON.stringify({
-        error: "Failed to send email",
-        details: error.message,
-      }),
-      {
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-        status: 500,
-      }
-    );
+    // Enhanced error logging
+    console.error(`[${requestId}] Error in request handling:`, {
+      error: error.message,
+      stack: error.stack,
+      cause: error.cause,
+      requestId
+    });
+    return new Response(JSON.stringify({
+      error: "Failed to process request",
+      details: error.message,
+      requestId,
+      timestamp: new Date().toISOString()
+    }), {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json"
+      },
+      status: 500
+    });
   }
 });

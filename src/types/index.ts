@@ -25,6 +25,7 @@ export interface OrderFormData {
   address: PropertyAddress;
   occupancyStatus: 'Vacant' | 'Occupied' | 'Tenanted' | 'Other';
   preferredDate: string;
+  preferredTime: string;
   propertyNotes: string;
   agent: AgentInfo;
 }

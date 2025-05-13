@@ -172,18 +172,42 @@ const OrderForm: React.FC<OrderFormProps> = ({
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             <Calendar className="w-4 h-4 inline-block mr-1" />
-            Preferred Date
+            Preferred Date & Time
           </label>
-          <div className="relative">
-            <input
-              type="date"
-              value={formData.preferredDate}
-              onChange={(e) => onFormChange('preferredDate', e.target.value)}
-              className={inputClassName('date')}
-            />
-            {hasError('date') && (
-              <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-red-500" />
-            )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="relative">
+              <input
+                type="date"
+                value={formData.preferredDate}
+                onChange={(e) => onFormChange('preferredDate', e.target.value)}
+                className={inputClassName('date')}
+              />
+              {hasError('date') && (
+                <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-red-500" />
+              )}
+            </div>
+            <div className="relative">
+              <select
+                value={formData.preferredTime}
+                onChange={(e) => onFormChange('preferredTime', e.target.value)}
+                className={inputClassName('time')}
+              >
+                <option value="">Select a time</option>
+                {Array.from({ length: 19 }, (_, i) => {
+                  const hour = Math.floor(i / 2) + 8;
+                  const minute = i % 2 === 0 ? '00' : '30';
+                  const time = `${hour.toString().padStart(2, '0')}:${minute}`;
+                  return (
+                    <option key={time} value={time}>
+                      {hour > 12 ? `${hour - 12}:${minute} PM` : `${hour}:${minute} AM`}
+                    </option>
+                  );
+                })}
+              </select>
+              {hasError('time') && (
+                <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-red-500" />
+              )}
+            </div>
           </div>
         </div>
       </div>

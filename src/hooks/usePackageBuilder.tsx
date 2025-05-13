@@ -14,6 +14,7 @@ const initialFormData: OrderFormData = {
   },
   occupancyStatus: 'Vacant',
   preferredDate: '',
+  preferredTime: '',
   propertyNotes: '',
   agent: {
     name: '',
@@ -65,6 +66,10 @@ export const usePackageBuilder = () => {
 
     if (!formData.preferredDate) {
       errors.push('Please select a preferred date');
+    }
+
+    if (!formData.preferredTime) {
+      errors.push('Please select a preferred time');
     }
 
     if (!formData.agent.name) {
@@ -186,6 +191,7 @@ export const usePackageBuilder = () => {
         address: formData.address,
         notes: formData.propertyNotes || null,
         preferred_date: formData.preferredDate,
+        time: formData.preferredTime,
         property_status: formData.occupancyStatus,
         status: 'pending',
         user_id: userData?.user?.id || null,
